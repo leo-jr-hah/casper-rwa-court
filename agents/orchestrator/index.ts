@@ -1744,7 +1744,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   app.get('/api/oracle/stats', async (_, res) => {
     try {
       const { getOracleStats } = await import('../shared/casper-contracts.js');
-      const stats = getOracleStats();
+      const stats = await getOracleStats();
       res.json({ success: true, stats });
     } catch (err: any) {
       log.error('[Oracle] Error:: ' + err.message);
