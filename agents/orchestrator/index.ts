@@ -3384,6 +3384,57 @@ Respond in JSON format:
   });
 
   /**
+   * GET /api/insurance/pool-stats
+   * Returns capital pool health for display on the frontend.
+   * IMPORTANT: Must be defined BEFORE /api/insurance/:policyId to avoid route collision.
+   */
+  app.get('/api/insurance/pool-stats', async (_, res) => {
+    try {
+      let allPolicies = Array.from(insuranceStore.values());
+      // Supabase fallback if in-memory is empty (after restart on Render)
+      if (allPolicies.length === 0) {
+        const rows = await db.getAllInsurance();
+        allPolicies = rows.map(r => ({
+          policyId: r.policy_id,
+          ownerPublicKey: r.owner_public_key,
+          assetId: r.asset_id,
+          assetType: r.asset_type as AssetType,
+          assetName: r.asset_name,
+          assessedValue: r.assessed_value,
+          coverageAmount: r.coverage_amount,
+          premiumCSPR: r.premium_cspr,
+          deductiblePercent: r.deductible_percent,
+          status: r.status as InsurancePolicy['status'],
+          riskScore: r.risk_score,
+          riskFactors: r.risk_factors,
+          tier: r.tier,
+          platformFeeCSPR: r.platform_fee_cspr,
+          expiresAt: r.expires_at,
+          createdAt: r.created_at,
+          coolingOffEnd: r.created_at + COOLING_OFF_DAYS * 24 * 60 * 60 * 1000,
+          claimHistory: r.claim_history,
+        }));
+      }
+      const activePolicies = allPolicies.filter(p => p.status === 'active');
+      const totalCoverage = activePolicies.reduce((sum, p) => sum + p.coverageAmount, 0);
+      const totalPremiums = allPolicies.reduce((sum, p) => sum + (p.platformFeeCSPR || 0), 0);
+      res.json({
+        success: true,
+        pool: {
+          capitalCSPR: capitalPoolCSPR,
+          totalPremiumsCollected: totalPremiums,
+          activePolicies: activePolicies.length,
+          totalCoverageExposure: totalCoverage,
+          solvencyRatio: totalCoverage > 0 ? Math.round((capitalPoolCSPR / totalCoverage) * 10000) / 100 : 0,
+        },
+      });
+    } catch (err: any) {
+      log.error('[Insurance] Pool stats error: ' + err.message);
+      res.status(500).json({ success: false, error: sanitizeError(err) });
+    }
+  });
+
+  /**
    * GET /api/insurance/:policyId
    * Get full details for a single insurance policy.
    */
@@ -3638,56 +3689,6 @@ Respond in JSON format:
         claimLocks.delete(policyId); // Always release lock
       }
     });
-
-  /**
-   * GET /api/insurance/pool-stats
-   * Returns capital pool health for display on the frontend.
-   */
-  app.get('/api/insurance/pool-stats', async (_, res) => {
-    try {
-      let allPolicies = Array.from(insuranceStore.values());
-      // Supabase fallback if in-memory is empty (after restart on Render)
-      if (allPolicies.length === 0) {
-        const rows = await db.getAllInsurance();
-        allPolicies = rows.map(r => ({
-          policyId: r.policy_id,
-          ownerPublicKey: r.owner_public_key,
-          assetId: r.asset_id,
-          assetType: r.asset_type as AssetType,
-          assetName: r.asset_name,
-          assessedValue: r.assessed_value,
-          coverageAmount: r.coverage_amount,
-          premiumCSPR: r.premium_cspr,
-          deductiblePercent: r.deductible_percent,
-          status: r.status as InsurancePolicy['status'],
-          riskScore: r.risk_score,
-          riskFactors: r.risk_factors,
-          tier: r.tier,
-          platformFeeCSPR: r.platform_fee_cspr,
-          expiresAt: r.expires_at,
-          createdAt: r.created_at,
-          coolingOffEnd: r.created_at + COOLING_OFF_DAYS * 24 * 60 * 60 * 1000,
-          claimHistory: r.claim_history,
-        }));
-      }
-      const activePolicies = allPolicies.filter(p => p.status === 'active');
-      const totalCoverage = activePolicies.reduce((sum, p) => sum + p.coverageAmount, 0);
-      const totalPremiums = allPolicies.reduce((sum, p) => sum + (p.platformFeeCSPR || 0), 0);
-      res.json({
-        success: true,
-        pool: {
-          capitalCSPR: capitalPoolCSPR,
-          totalPremiumsCollected: totalPremiums,
-          activePolicies: activePolicies.length,
-          totalCoverageExposure: totalCoverage,
-          solvencyRatio: totalCoverage > 0 ? Math.round((capitalPoolCSPR / totalCoverage) * 10000) / 100 : 0,
-        },
-      });
-    } catch (err: any) {
-      log.error('[Insurance] Pool stats error: ' + err.message);
-      res.status(500).json({ success: false, error: sanitizeError(err) });
-    }
-  });
 
   // ─── Admin: Force-trigger revaluation (demo/testing aid) ──────────────────
   // POST /api/admin/force-revalue/:loanId - immediately revalues a loan
