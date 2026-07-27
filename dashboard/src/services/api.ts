@@ -7,8 +7,8 @@
 import { createLogger } from '../utils/logger.js';
 const log = createLogger('API');
 
-export const ORCHESTRATOR_URL = import.meta.env.VITE_ORCHESTRATOR_URL || (import.meta.env.PROD ? 'https://verdicto-production.up.railway.app' : '');
-const WS_URL = import.meta.env.VITE_WS_URL || (import.meta.env.PROD ? 'wss://verdicto-production.up.railway.app/ws' : '');
+export const ORCHESTRATOR_URL = import.meta.env.VITE_ORCHESTRATOR_URL || (import.meta.env.PROD ? 'https://verdicto-w5f2.onrender.com' : '');
+const WS_URL = import.meta.env.VITE_WS_URL || (import.meta.env.PROD ? 'wss://verdicto-w5f2.onrender.com/ws' : '');
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
