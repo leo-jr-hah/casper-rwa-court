@@ -1112,7 +1112,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       // Final fallback: count unique assessments from transaction history
       if (assessmentIds.length === 0) {
         const submitTxs = transactions.filter(t => t.type === 'SubmitAssessment');
-        assessmentIds = [...new Set(submitTxs.map(t => String(t.metadata?.assessmentId ?? '')))].filter(Boolean);
+        assessmentIds = [...new Set(submitTxs.map(t => t.hash).filter(Boolean))];
         const receiptTxs = transactions.filter(t => t.type === 'HMAC Receipt Chain');
         totalReceipts = receiptTxs.length;
       }
