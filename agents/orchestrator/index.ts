@@ -1101,15 +1101,43 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     try {
       const transactions = await loadTransactions();
 
-      // Count assessments from receipt chains
-      const assessmentIds = Array.from(receiptChainStore.keys());
+      // Count assessments — try in-memory first, fall back to Supabase
+      let assessmentIds = Array.from(receiptChainStore.keys());
+      let totalReceipts = Array.from(receiptChainStore.values()).reduce((sum, chain) => sum + chain.length, 0);
+      if (assessmentIds.length === 0) {
+        const dbAssessments = await db.getAssessmentsFromDb(500).catch(() => []);
+        assessmentIds = dbAssessments.map(a => a.assessment_id);
+        totalReceipts = dbAssessments.reduce((sum, a) => sum + (Array.isArray(a.receipt_chain) ? a.receipt_chain.length : 0), 0);
+      }
       const totalAssessments = assessmentIds.length;
-      const totalReceipts = Array.from(receiptChainStore.values()).reduce((sum, chain) => sum + chain.length, 0);
 
-      // Count loans by status (only count items from the last 24h as "active" to avoid
-      // stale in-memory entries from previous sessions inflating the count)
+      // Count loans — try in-memory first, fall back to Supabase
       const cutoff24h = Date.now() - 24 * 60 * 60 * 1000;
-      const allLoans = Array.from(loanStore.values());
+      let allLoans = Array.from(loanStore.values());
+      if (allLoans.length === 0) {
+        const dbLoans = await db.getAllLoans().catch(() => []);
+        allLoans = dbLoans.map(r => ({
+          loanId: r.loan_id,
+          borrowerPublicKey: r.borrower_public_key,
+          assetId: r.asset_id,
+          assetType: r.asset_type as AssetType,
+          assetName: r.asset_name,
+          assessedValue: r.assessed_value,
+          ltvRatio: r.ltv_ratio,
+          loanAmountCSPR: r.loan_amount_cspr,
+          collateralAssessmentId: r.collateral_assessment_id,
+          status: r.status as Loan['status'],
+          healthRatio: r.health_ratio,
+          createdAt: r.created_at,
+          lastRevaluedAt: r.last_revalued_at,
+          repaidAmountCSPR: r.repaid_amount_cspr,
+          repaymentHistory: r.repayment_history,
+          disbursementTxHash: r.disbursement_tx_hash,
+          platformFeeCSPR: r.platform_fee_cspr,
+          trustBreakdown: r.trust_breakdown,
+          revaluationHistory: r.revaluation_history,
+        }));
+      }
       const activeLoans = allLoans.filter(l =>
         (l.status === 'active' || l.status === 'warning') &&
         (l.createdAt ?? 0) > cutoff24h
@@ -1117,8 +1145,31 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       const repaidLoans = allLoans.filter(l => l.status === 'repaid');
       const liquidatedLoans = allLoans.filter(l => l.status === 'liquidated');
 
-      // Count insurance policies by status (same 24h freshness filter)
-      const allPolicies = Array.from(insuranceStore.values());
+      // Count insurance policies — try in-memory first, fall back to Supabase
+      let allPolicies = Array.from(insuranceStore.values());
+      if (allPolicies.length === 0) {
+        const dbPolicies = await db.getAllInsurance().catch(() => []);
+        allPolicies = dbPolicies.map(r => ({
+          policyId: r.policy_id,
+          ownerPublicKey: r.owner_public_key,
+          assetId: r.asset_id,
+          assetType: r.asset_type as AssetType,
+          assetName: r.asset_name,
+          assessedValue: r.assessed_value,
+          coverageAmount: r.coverage_amount,
+          premiumCSPR: r.premium_cspr,
+          deductiblePercent: r.deductible_percent,
+          status: r.status as InsurancePolicy['status'],
+          riskScore: r.risk_score,
+          riskFactors: r.risk_factors,
+          tier: r.tier,
+          platformFeeCSPR: r.platform_fee_cspr,
+          expiresAt: r.expires_at,
+          createdAt: r.created_at,
+          coolingOffEnd: r.created_at + COOLING_OFF_DAYS * 24 * 60 * 60 * 1000,
+          claimHistory: r.claim_history,
+        }));
+      }
       const activePolicies = allPolicies.filter(p =>
         p.status === 'active' && (p.createdAt ?? 0) > cutoff24h
       );
@@ -3593,20 +3644,49 @@ Respond in JSON format:
    * Returns capital pool health for display on the frontend.
    */
   app.get('/api/insurance/pool-stats', async (_, res) => {
-    const allPolicies = Array.from(insuranceStore.values());
-    const activePolicies = allPolicies.filter(p => p.status === 'active');
-    const totalCoverage = activePolicies.reduce((sum, p) => sum + p.coverageAmount, 0);
-    const totalPremiums = allPolicies.reduce((sum, p) => sum + (p.platformFeeCSPR || 0), 0);
-    res.json({
-      success: true,
-      pool: {
-        capitalCSPR: capitalPoolCSPR,
-        totalPremiumsCollected: totalPremiums,
-        activePolicies: activePolicies.length,
-        totalCoverageExposure: totalCoverage,
-        solvencyRatio: totalCoverage > 0 ? Math.round((capitalPoolCSPR / totalCoverage) * 10000) / 100 : 0,
-      },
-    });
+    try {
+      let allPolicies = Array.from(insuranceStore.values());
+      // Supabase fallback if in-memory is empty (after restart on Render)
+      if (allPolicies.length === 0) {
+        const rows = await db.getAllInsurance();
+        allPolicies = rows.map(r => ({
+          policyId: r.policy_id,
+          ownerPublicKey: r.owner_public_key,
+          assetId: r.asset_id,
+          assetType: r.asset_type as AssetType,
+          assetName: r.asset_name,
+          assessedValue: r.assessed_value,
+          coverageAmount: r.coverage_amount,
+          premiumCSPR: r.premium_cspr,
+          deductiblePercent: r.deductible_percent,
+          status: r.status as InsurancePolicy['status'],
+          riskScore: r.risk_score,
+          riskFactors: r.risk_factors,
+          tier: r.tier,
+          platformFeeCSPR: r.platform_fee_cspr,
+          expiresAt: r.expires_at,
+          createdAt: r.created_at,
+          coolingOffEnd: r.created_at + COOLING_OFF_DAYS * 24 * 60 * 60 * 1000,
+          claimHistory: r.claim_history,
+        }));
+      }
+      const activePolicies = allPolicies.filter(p => p.status === 'active');
+      const totalCoverage = activePolicies.reduce((sum, p) => sum + p.coverageAmount, 0);
+      const totalPremiums = allPolicies.reduce((sum, p) => sum + (p.platformFeeCSPR || 0), 0);
+      res.json({
+        success: true,
+        pool: {
+          capitalCSPR: capitalPoolCSPR,
+          totalPremiumsCollected: totalPremiums,
+          activePolicies: activePolicies.length,
+          totalCoverageExposure: totalCoverage,
+          solvencyRatio: totalCoverage > 0 ? Math.round((capitalPoolCSPR / totalCoverage) * 10000) / 100 : 0,
+        },
+      });
+    } catch (err: any) {
+      log.error('[Insurance] Pool stats error: ' + err.message);
+      res.status(500).json({ success: false, error: sanitizeError(err) });
+    }
   });
 
   // ─── Admin: Force-trigger revaluation (demo/testing aid) ──────────────────
