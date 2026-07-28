@@ -77,20 +77,6 @@ async function upsert(table: string, row: Record<string, any>, onConflict?: stri
   }
 }
 
-async function insert(table: string, row: Record<string, any>) {
-  const client = await getClient();
-  if (!client) return;
-
-  try {
-    const { error } = await client.from(table).insert(row);
-    if (error) {
-      log.error(`Insert into ${table} failed: ${error.message}`);
-    }
-  } catch (err: any) {
-    log.error(`Insert into ${table} exception: ${err.message}`);
-  }
-}
-
 async function select(table: string, filters: Record<string, any>, order?: { column: string; ascending?: boolean }) {
   const client = await getClient();
   if (!client) return null;

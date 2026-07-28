@@ -17,7 +17,7 @@ process.env.NODE_ENV = 'test';
 import { describe, it, expect, vi } from 'vitest';
 import express, { type Request, type Response } from 'express';
 import request from 'supertest';
-import { createHash, randomBytes } from 'crypto';
+import { randomBytes } from 'crypto';
 
 // ─── Mock on-chain verification ─────────────────────────────────────────────
 // Mock axios BEFORE importing the middleware so the middleware's internal

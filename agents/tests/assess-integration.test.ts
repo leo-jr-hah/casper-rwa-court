@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { runDualValuation } from '../shared/agent-engine.js';
-import * as db from '../shared/db.js';
 
 // Minimal mock app to test Assess endpoint
 const app = express();
@@ -31,7 +30,7 @@ vi.mock('../shared/verifiable-execution.js', () => ({
 
 app.post('/api/assess', async (req, res) => {
   try {
-    const { assetType, name, description, askingPrice } = req.body;
+    const { assetType, name, description: _description, askingPrice: _askingPrice } = req.body;
     const [valuationA, valuationB] = await runDualValuation({
       assetType,
       assetId: `test-${Date.now()}`,

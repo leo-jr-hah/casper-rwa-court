@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import * as db from '../shared/db.js';
 
 // Minimal mock app to test Predict endpoint
 const app = express();

@@ -449,7 +449,7 @@ export async function calcArtMarketComparison(
   assetId: string,
   artistOrMedium: string
 ): Promise<ValuationResult> {
-  const { dataContext, dataSource, fallbackValue } = await gatherArtData(artistOrMedium);
+  const { dataContext, dataSource, fallbackValue: _fallbackValue } = await gatherArtData(artistOrMedium);
   const medium = artistOrMedium.toLowerCase();
   const mock = MOCK_ART_ESTIMATES[medium] || MOCK_ART_ESTIMATES['oil painting'];
   const dcfFallback = jitter(mock.high * 0.7, 0.15);
@@ -607,7 +607,7 @@ export async function calcCommodityAppraisal(
   weightOz: number,
   commodityName?: string
 ): Promise<ValuationResult> {
-  const { dataContext, dataSource, fallbackValue, pricePerOz } = await gatherCommodityData(weightOz, commodityName);
+  const { dataContext, dataSource: _dataSource, fallbackValue: _fallbackValue, pricePerOz } = await gatherCommodityData(weightOz, commodityName);
   const commodity = detectCommodity(commodityName || 'gold');
   const premium = 1.03 + Math.random() * 0.04;
   const dcfFallback = Math.round(pricePerOz * weightOz * premium);

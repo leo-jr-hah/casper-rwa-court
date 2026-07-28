@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as db from '../shared/db.js';
 
 // Mock dependencies
 vi.mock('../shared/db.js', () => ({

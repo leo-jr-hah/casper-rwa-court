@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   runDualValuation,
   calcRealEstateComps,
@@ -9,12 +9,11 @@ import {
   calcCommodityAppraisal,
   type ValuationRequest,
 } from '../shared/agent-engine.js';
-import type { ValuationResult } from '../shared/types.js';
 
 // ─── Mock external dependencies ──────────────────────────────────────────────
 
 vi.mock('../shared/mimo-client.js', () => ({
-  askValuationAgent: vi.fn().mockImplementation(async (systemPrompt: string, userPrompt: string) => {
+  askValuationAgent: vi.fn().mockImplementation(async (_systemPrompt: string, userPrompt: string) => {
     // Return deterministic LLM responses that match test expectations
     if (userPrompt.includes('commodity') || userPrompt.includes('COMMODITY')) {
       if (userPrompt.includes('SPOT') || userPrompt.includes('spot')) {

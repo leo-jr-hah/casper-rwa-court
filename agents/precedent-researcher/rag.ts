@@ -1,13 +1,7 @@
-import { LocalIndex } from 'vectra';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
 // We don't have a real embedding API right now, so we will use a mock embedding function
 // that just hashes the string into a small vector, or we can just return a hardcoded response for demonstration.
 
-export async function queryPrecedents(location: string, asset_id: string): Promise<string> {
+export async function queryPrecedents(_location: string, _asset_id: string): Promise<string> {
   // In a real RAG system, we would embed the query and search the index.
   // Here we mock a Vectra RAG retrieval for the Precedent Researcher.
   return `Relevant Precedents Found via Vectra:

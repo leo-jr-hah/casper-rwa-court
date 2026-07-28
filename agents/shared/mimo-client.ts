@@ -72,13 +72,6 @@ export function sanitizeForPrompt(value: string): string {
   return clean;
 }
 
-/**
- * Wrap user-supplied values in delimiters so the LLM treats them as data, not instructions.
- * This is the primary defense against prompt injection.
- */
-function delimit(value: string): string {
-  return `<<<USER_DATA_START>>>\n${value}\n<<<USER_DATA_END>>>`;
-}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

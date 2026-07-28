@@ -10,7 +10,6 @@
  * Falls back gracefully if contracts are unavailable.
  */
 
-import crypto from 'crypto';
 import { execFile } from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -76,7 +75,7 @@ async function executeContractCall(
     ...sessionArgs.flatMap(a => ['--session-arg', a]),
   ];
 
-  const stdout = await new Promise<string>((resolve, reject) => {
+  await new Promise<string>((resolve, reject) => {
     execFile('casper-client', args, { encoding: 'utf-8' }, (error, stdout, stderr) => {
       if (error) reject(new Error(`casper-client failed: ${stderr || error.message}`));
       else resolve(stdout);
@@ -124,7 +123,7 @@ export async function executeCasperTransfer(targetPublicKeyHex: string, amountMo
   const networkName = process.env.CASPER_CHAIN_NAME || 'casper-test';
   const tempFile = path.resolve(process.cwd(), `deploy-${transferId}.json`);
 
-  const stdout = await new Promise<string>((resolve, reject) => {
+  await new Promise<string>((resolve, reject) => {
     execFile('casper-client', [
       'make-transfer',
       '--chain-name', networkName,
@@ -213,7 +212,7 @@ export async function castVoteOnChain(
 /**
  * Read verdict from VotingContract via CSPR.cloud state query.
  */
-export async function getVerdictOnChain(assessmentId: string): Promise<{ verdict: number; tally: number[] } | null> {
+export async function getVerdictOnChain(_assessmentId: string): Promise<{ verdict: number; tally: number[] } | null> {
   if (!VOTING_CONTRACT_HASH || !CSPR_CLOUD_KEY) return null;
 
   try {
@@ -245,7 +244,7 @@ export interface OnChainReputation {
  */
 export async function updateReputationOnChain(
   agentId: string,
-  domain: 'general' | 'real_estate',
+  _domain: 'general' | 'real_estate',
   delta: number,
 ): Promise<{ success: boolean; txHash: string }> {
   if (!REPUTATION_CONTRACT_HASH) {

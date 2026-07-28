@@ -51,7 +51,7 @@ export function createExecutionCommitment(
 
 export async function storeCommitmentOnCasper(
   commitment: ExecutionCommitment,
-  contractHash: string
+  _contractHash: string
 ) {
   log.info(`🔗 [HashCommitment] Anchoring commitment ${commitment.commitment.slice(0, 16)}... to Casper`);
   

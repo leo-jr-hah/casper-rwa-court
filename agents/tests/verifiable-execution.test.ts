@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { createHash } from 'crypto';
 import {
   createExecutionCommitment,
-  type ExecutionCommitment,
 } from '../shared/verifiable-execution.js';
 
 describe('createExecutionCommitment', () => {

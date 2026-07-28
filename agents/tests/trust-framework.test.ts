@@ -4,7 +4,6 @@ import {
   generateChallenge,
   scoreAgainstExpected,
   computeAggregateTrust,
-  type AgentTrustScore,
 } from '../shared/trust-framework.js';
 
 describe('generateChallenge', () => {

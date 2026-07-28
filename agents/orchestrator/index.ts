@@ -44,7 +44,6 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { getCasperMcpClient } from '../shared/casper-mcp-client.js';
 import { attachWebSocket, emitEvent } from '../websocket-server.js';
-import { computeAggregateTrust } from '../shared/trust-framework.js';
 import { createDeliberationReceipt, DeliberationReceipt, verifyReceiptChain } from '../shared/audit-trail.js';
 import { createExecutionCommitment, storeCommitmentOnCasper } from '../shared/verifiable-execution.js';
 import { saveTransaction as saveTransactionFile, createTransactionEntry, loadTransactions as loadTransactionsFile } from '../shared/transaction-log.js';
@@ -121,7 +120,6 @@ const CSPR_CLOUD_KEY = process.env.CSPRCLOUD_API_KEY || '';
 const CSPR_RPC_URL = 'https://node.testnet.cspr.cloud/rpc';
 const SETTLEMENT_AMOUNT_MOTES = 2_500_000_000; // 2.5 CSPR
 const DEPLOY_PAYMENT_MOTES = 100_000_000;       // 0.1 CSPR deploy cost
-const ASSESSMENT_TIMEOUT_MS = 5 * 60 * 1000;       // 5 minutes max per assessment
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173,http://localhost:5174,http://localhost:3000,https://verdicto.xyz,https://www.verdicto.xyz').split(',');
 const JUROR_IDS = ['evidence', 'market', 'precedent'] as const;
 
@@ -136,12 +134,6 @@ const PLATFORM_WALLET = process.env.PLATFORM_WALLET || '02030405060708090a0b0c0d
 // ─── Security: Input sanitization helpers ────────────────────────────────────
 const MAX_STRING_LENGTH = 500;
 const MAX_DESCRIPTION_LENGTH = 2000;
-
-/** Truncate and sanitize string inputs to prevent abuse */
-function sanitizeString(value: unknown, maxLen = MAX_STRING_LENGTH): string {
-  if (typeof value !== 'string') return '';
-  return value.trim().slice(0, maxLen);
-}
 
 /** Sanitize error messages — never leak internal details to clients */
 function sanitizeError(err: any): string {
@@ -232,25 +224,6 @@ async function fetchOnChainReputation(agentId: string): Promise<number> {
   return fallback;
 }
 
-/**
- * Parse an SSE response body into structured data.
- * Handles the `event: message\ndata: {...}` format used by MCP servers.
- */
-function parseSseResponse(raw: string): any {
-  const lines = raw.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].startsWith('event: message') && i + 1 < lines.length && lines[i + 1].startsWith('data: ')) {
-      const payload = lines[i + 1].substring(6);
-      try {
-        return JSON.parse(payload);
-      } catch {
-        log.warn(`[SSE] Failed to parse data payload: ${payload.substring(0, 120)}...`);
-        return raw;
-      }
-    }
-  }
-  return raw; // not SSE - return as-is
-}
 
 // ─── Casper Transfer (async execFile - no shell injection, non-blocking) ──────
 
@@ -280,7 +253,7 @@ async function executeCasperTransfer(targetPublicKeyHex: string, amountMotes: nu
   const tempFile = path.resolve(process.cwd(), `deploy-${transferId}.json`);
 
   // async execFile passes args as an array - no shell interpolation, non-blocking
-  const stdout = await new Promise<string>((resolve, reject) => {
+  await new Promise<string>((resolve, reject) => {
     execFile('casper-client', [
       'make-transfer',
       '--chain-name', networkName,
@@ -1883,7 +1856,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         receiptCount = chain.length;
         if (chain.length > 0) {
           try {
-            const { verifyReceiptChain } = await import('../shared/audit-trail.js');
             // We can't fully verify without secrets, but we can check structural integrity
             receiptChainValid = chain.every((r: any) =>
               r.receiptId && r.assessmentId && r.signature && r.timestamp
@@ -2844,12 +2816,10 @@ Respond in JSON format:
           log.info(`Loan ${loan.loanId} fully repaid!`);
 
           // Verdict Point 2: Escrow release - return collateral to platform
-          let escrowReleaseHash = `escrow-release-${Date.now()}`;
           try {
             const releaseMotes = Math.floor(loan.loanAmountCSPR * 1e9);
             const releaseTransferId = Date.now() + Math.floor(Math.random() * 1000);
             const releaseHash = await executeCasperTransfer(PLATFORM_WALLET, releaseMotes, releaseTransferId);
-            escrowReleaseHash = releaseHash;
             loan.escrowReleaseTxHash = releaseHash;
             log.info(`🔓 Escrow released! deploy_hash: ${releaseHash.substring(0, 16)}...`);
 
@@ -3226,7 +3196,7 @@ Respond in JSON format:
           askingPrice,
           confidence,
           coveragePercent,
-          assessmentId,
+          assessmentId: _assessmentId,
         } = req.body;
 
         // ── Validate inputs ────────────────────────────────────────────────
@@ -3846,114 +3816,7 @@ Respond in JSON format:
     // DISABLED: User requested no automatic transactions. Current count is sufficient.
     log.info(`[Auto-Revalue] Auto-revaluation DISABLED (user request)`);
 
-    // ─── Background Oracle Activity Generator ───────────────────────────────
-    // Periodically runs real AI-powered oracle valuations for diverse asset types.
-    // Each cycle: dual-agent valuation → juror deliberation → verdict stored on-chain → transaction logged.
-    // This builds real platform activity so dashboard metrics reflect actual system usage.
-    const ORACLE_ACTIVITY_INTERVAL_MS = 3 * 60 * 1000; // every 3 minutes
-    const ORACLE_ASSET_POOL: ValuationRequest[] = [
-      { assetType: 'real-estate', assetId: 're-miami-condo-001', name: 'Miami Beach Condo', location: 'Miami, FL', sqft: 1200 },
-      { assetType: 'real-estate', assetId: 're-nyc-loft-002', name: 'Manhattan Loft', location: 'New York, NY', sqft: 1800 },
-      { assetType: 'real-estate', assetId: 're-austin-home-003', name: 'Austin Family Home', location: 'Austin, TX', sqft: 2400 },
-      { assetType: 'real-estate', assetId: 're-sf-studio-004', name: 'SF Studio Apartment', location: 'San Francisco, CA', sqft: 650 },
-      { assetType: 'real-estate', assetId: 're-denver-town-005', name: 'Denver Townhouse', location: 'Denver, CO', sqft: 1600 },
-      { assetType: 'art', assetId: 'art-oil-abstract-001', name: 'Abstract Oil Painting', artistOrMedium: 'abstract oil painting contemporary' },
-      { assetType: 'art', assetId: 'art-sculpture-bronze-002', name: 'Bronze Sculpture', artistOrMedium: 'bronze sculpture modern' },
-      { assetType: 'art', assetId: 'art-watercolor-landscape-003', name: 'Watercolor Landscape', artistOrMedium: 'watercolor landscape impressionist' },
-      { assetType: 'commodity', assetId: 'com-gold-1oz-001', name: '1oz Gold Bar', weightOz: 1 },
-      { assetType: 'commodity', assetId: 'com-gold-10oz-002', name: '10oz Gold Bar', weightOz: 10 },
-      { assetType: 'commodity', assetId: 'com-silver-100oz-003', name: '100oz Silver Bar', weightOz: 100 },
-      { assetType: 'commodity', assetId: 'com-platinum-1oz-004', name: '1oz Platinum Coin', weightOz: 1 },
-    ];
-    let oracleActivityIndex = 0;
-
-    async function runOracleActivityCycle() {
-      const asset = ORACLE_ASSET_POOL[oracleActivityIndex % ORACLE_ASSET_POOL.length];
-      oracleActivityIndex++;
-      const cycleId = `oracle-bg-${Date.now()}`;
-
-      try {
-        log.info(`\n[OracleActivity] 🔄 Running background valuation: ${asset.name} (${asset.assetType})`);
-
-        // Step 1: Dual-agent valuation (real AI calls)
-        const [valA, valB] = await runDualValuation(asset);
-        const assessedValue = Math.round((valA.estimated_value + valB.estimated_value) / 2);
-        const confidence = Math.round(((valA.confidence || 0.75) + (valB.confidence || 0.75)) / 2 * 100);
-        const divergence = Math.abs(valA.estimated_value - valB.estimated_value) / assessedValue;
-
-        log.info(`[OracleActivity] 💰 ${asset.name}: ${assessedValue.toLocaleString()} (confidence: ${confidence}%, divergence: ${(divergence * 100).toFixed(1)}%)`);
-
-        // Step 2: Store verdict on oracle (real on-chain or in-memory + Supabase)
-        const { storeVerdictOnChain } = await import('../shared/casper-contracts.js');
-        const receiptHash = crypto.createHash('sha256').update(JSON.stringify({ valA: valA.estimated_value, valB: valB.estimated_value, ts: Date.now() })).digest('hex').slice(0, 64);
-        const agentWeights = `valuation-a:${valA.confidence || 75},valuation-b:${valB.confidence || 75}`;
-
-        const verdictResult = await storeVerdictOnChain({
-          assetId: asset.assetId,
-          value: assessedValue,
-          confidence,
-          jurorCount: 2,
-          receiptHash,
-          timestamp: Date.now(),
-          expiry: Date.now() + 86_400_000,
-          agentWeights,
-          decision: valA.estimated_value > valB.estimated_value ? 'AgentAPreferred' : 'AgentBPreferred',
-        });
-
-        // Step 3: Log transactions (real entries)
-        const verdictTx = createTransactionEntry(
-          'ExecuteVerdict',
-          `Oracle verdict: ${asset.name} → ${assessedValue.toLocaleString()}`,
-          verdictResult.txHash || `verdict-${cycleId}`,
-          'VerdictOracle',
-          'latest',
-          { assetId: asset.assetId, assessedValue, confidence, divergence: Math.round(divergence * 100) },
-          verdictResult.success,
-        );
-        saveTransaction(verdictTx);
-        emitEvent('transaction', verdictTx);
-
-        // Step 4: Update agent stats
-        const now = Date.now();
-        for (const [id, stats] of agentStatsStore) {
-          stats.assessmentCount++;
-          stats.totalConfidence += confidence;
-          stats.lastActiveAt = now;
-        }
-
-        // Step 5: Hash commitment (real on-chain)
-        try {
-          const reputationHash = process.env.REPUTATION_CONTRACT_HASH;
-          const commitment = createExecutionCommitment(
-            JSON.stringify({ assetId: asset.assetId, name: asset.name, assetType: asset.assetType }),
-            { assessedValue, confidence, divergence: Math.round(divergence * 100) },
-            'latest',
-          );
-          const commitmentHash = await storeCommitmentOnCasper(commitment, reputationHash || '0xmockreputation');
-          const zkTx = createTransactionEntry(
-            'Hash Commitment',
-            `Oracle ${asset.name} execution commitment`,
-            commitmentHash,
-            'ReputationRegistry',
-            'latest',
-            { assetId: asset.assetId, commitment },
-            true,
-          );
-          saveTransaction(zkTx);
-          emitEvent('transaction', zkTx);
-        } catch (err: any) {
-          log.warn(`[OracleActivity] ⚠️ ZK commitment failed: ${err.message}`);
-        }
-
-        log.info(`[OracleActivity] ✅ ${asset.name} complete — verdict + commitment stored`);
-      } catch (err: any) {
-        log.error(`[OracleActivity] ❌ Failed for ${asset.name}: ${err.message}`);
-      }
-    }
-
-    // ─── Background Oracle Activity Generator ───────────────────────────────
-    // DISABLED: User requested no automatic transactions. Current count is sufficient.
-    // To re-enable, uncomment the setInterval calls below.
     log.info(`[OracleActivity] Background oracle valuations DISABLED (user request)`);
   });
 }
+

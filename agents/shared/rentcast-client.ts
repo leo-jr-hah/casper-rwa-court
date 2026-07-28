@@ -14,7 +14,7 @@ export async function getPropertyData(address: string) {
   return response.data;
 }
 
-export async function getComparableSales(city: string, radius: number = 5) {
+export async function getComparableSales(city: string, _radius: number = 5) {
   if (!RENTCAST_API_KEY) {
     throw new Error('RENTCAST_API_KEY is not set');
   }
